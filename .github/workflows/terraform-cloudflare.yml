@@ -1,0 +1,263 @@
+name: Terraform Cloudflare GitOps
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "**.tf"
+      - "**.tfvars"
+      - ".github/workflows/terraform-cloudflare.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "**.tf"
+      - "**.tfvars"
+      - ".github/workflows/terraform-cloudflare.yml"
+  # workflow_dispatch:
+  #   inputs:
+  #     action:
+  #       description: 'Terraform action to perform'
+  #       required: true
+  #       default: 'plan'
+  #       type: choice
+  #       options:
+  #         - plan
+  #         - apply
+  #         - destroy
+
+env:
+  TF_VERSION: "1.12.2"
+  TF_WORKING_DIR: "./tf-cloudflare-gspc"
+  TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+jobs:
+  terraform-validate:
+    name: Terraform Validate
+    runs-on: ubuntu-latest
+    outputs:
+      fmt_outcome: ${{ steps.fmt.outcome }}
+      init_outcome: ${{ steps.init.outcome }}
+      validate_outcome: ${{ steps.validate.outcome }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Format Check
+        id: fmt
+        run: terraform fmt -check -recursive
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        continue-on-error: true
+
+      - name: Terraform Init
+        id: init
+        run: terraform init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    needs: terraform-validate
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    outputs:
+      plan_outcome: ${{ steps.plan.outcome }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: terraform init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          terraform plan -no-color -out=tfplan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        continue-on-error: true
+
+      - name: Save Terraform Plan
+        uses: actions/upload-artifact@v4
+        if: steps.plan.outcome == 'success'
+        with:
+          name: terraform-plan
+          path: ${{ env.TF_WORKING_DIR }}/tfplan
+          retention-days: 1
+
+      - name: Comment PR with Plan
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' && comment.body.includes('Terraform Plan Results')
+            );
+
+            const output = `## Terraform Plan Results 🚀
+
+            #### Terraform Format and Style 🖌 \`${{ needs.terraform-validate.outputs.fmt_outcome }}\`
+            #### Terraform Initialization ⚙️ \`${{ needs.terraform-validate.outputs.init_outcome }}\`
+            #### Terraform Validation 🤖 \`${{ needs.terraform-validate.outputs.validate_outcome }}\`
+            #### Terraform Plan 📖 \`${{ steps.plan.outcome }}\`
+
+            <details><summary>Show Plan</summary>
+
+            \`\`\`terraform
+            ${{ steps.plan.outputs.stdout }}
+            \`\`\`
+
+            </details>
+
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Working Directory: \`${{ env.TF_WORKING_DIR }}\`, Workflow: \`${{ github.workflow }}\`*`;
+
+            if (botComment) {
+              github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: output
+              });
+            } else {
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: output
+              });
+            }
+
+  terraform-apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    needs: [terraform-validate, terraform-plan]
+    if: |
+      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
+    environment: production
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: terraform init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Download Terraform Plan
+        uses: actions/download-artifact@v4
+        if: github.event_name == 'push'
+        with:
+          name: terraform-plan
+          path: ${{ env.TF_WORKING_DIR }}
+        continue-on-error: true
+
+      - name: Terraform Apply
+        id: apply
+        run: |
+          if [ -f tfplan ]; then
+            terraform apply -no-color tfplan
+          else
+            terraform apply -no-color -auto-approve
+          fi
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Create deployment summary
+        if: always()
+        run: |
+          echo "## Terraform Apply Results 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Status: ${{ steps.apply.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Working Directory:** \`${{ env.TF_WORKING_DIR }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Terraform Version:** \`${{ env.TF_VERSION }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+
+  terraform-destroy:
+    name: Terraform Destroy
+    runs-on: ubuntu-latest
+    needs: terraform-validate
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
+    environment: production
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: terraform init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform Destroy
+        id: destroy
+        run: terraform destroy -no-color -auto-approve
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Create destruction summary
+        if: always()
+        run: |
+          echo "## Terraform Destroy Results 🔥" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Status: ${{ steps.destroy.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Working Directory:** \`${{ env.TF_WORKING_DIR }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Terraform Version:** \`${{ env.TF_VERSION }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: terraform-validate
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov
+        id: checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: ${{ env.TF_WORKING_DIR }}
+          framework: terraform
+          output_format: sarif
+          output_file_path: checkov-results.sarif
+          soft_fail: true
+
+      - name: Upload Checkov results to GitHub Advanced Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: checkov-results.sarif

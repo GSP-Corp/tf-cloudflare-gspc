@@ -1,0 +1,189 @@
+# Checkov Configuration for Cloudflare Terraform Security Scanning
+# This file configures security policy checks for your Terraform code
+
+# Framework to scan
+framework:
+  - terraform
+
+# Output format options: cli, json, junitxml, github_failed_only, sarif
+output: cli
+
+# Quiet mode - only show failed checks
+quiet: false
+
+# Compact mode - show only summary
+compact: false
+
+# Skip checks by ID
+skip-check:
+  # Skip IPv6 checks if not using IPv6
+  - CKV_CF_1 # Ensure Cloudflare Zone has IPv6 enabled
+
+  # Skip if you don't want to enforce specific TLS versions
+  # - CKV_CF_2  # Ensure minimum TLS version is 1.2
+
+  # Skip development mode checks for production
+  # - CKV_CF_3  # Ensure development mode is disabled
+
+# Skip checks by file path patterns
+skip-path:
+  - .terraform/
+  - terraform.tfstate
+  - terraform.tfstate.backup
+
+# Include additional custom checks directory
+# check:
+#   - /path/to/custom/checks
+
+# Severity levels to report (LOW, MEDIUM, HIGH, CRITICAL)
+# severity:
+#   - HIGH
+
+# Enable or disable specific check categories
+# check-type:
+#   - secrets
+#   - iac_misconfiguration
+#   - vulnerabilities
+#   - licenses
+
+# Custom policies directory
+# policy-dir: /path/to/custom/policies
+
+# Create a baseline file to track suppressions
+# baseline: checkov-baseline.json
+
+# Enable soft fail mode (exit with 0 even if checks fail)
+soft-fail: true
+
+# Download external modules for scanning
+download-external-modules: true
+
+# Evaluate variables in modules
+evaluate-variables: true
+
+# Skip SSL certificate verification
+# skip-ssl-verify: true
+
+# Custom CA bundle path
+# ca-certificate: /path/to/ca-bundle.pem
+
+# Repository configuration
+repo-root-for-plan-enrichment: .
+
+# Enable verbose logging
+# verbose: true
+
+# # Configuration for specific cloud providers
+# cloudformation-config:
+#   # Skip CloudFormation specific checks since we're using Terraform
+#   skip-framework: true
+
+# Terraform-specific configuration
+# terraform-config:
+#   # # Enable Terraform plan scanning
+#   # enable-plan-scanning: true
+
+#   # Terraform variable files to include
+#   var-file:
+#     - variables.tf
+
+# Terraform modules to download
+download-external-modules: true
+
+# # Module download timeout
+# module-download-timeout: 30
+
+# External checks configuration
+external-checks-dir: []
+
+# Git configuration for blame information
+# git-config:
+#   enabled: true
+#   repository-root: .
+
+# SARIF output configuration
+# sarif-config:
+#   # Include code snippets in SARIF output
+#   include-code-snippets: true
+
+# # Include fix suggestions
+# include-fix-suggestions: true
+
+# Secrets scanning configuration
+# secrets-config:
+#   # Enable secrets scanning
+#   enable-secrets-scanning: true
+
+#   # Additional entropy threshold for secrets detection
+#   entropy-threshold: 4.5
+
+# License scanning configuration
+# license-config:
+#   # Enable license scanning
+#   enable-license-scanning: false
+
+# # Vulnerability scanning configuration
+# vulnerability-config:
+#   # Enable vulnerability scanning
+#   enable-vulnerability-scanning: false
+
+# Custom output template
+# output-template: /path/to/custom/template.jinja2
+
+# Enable performance profiling
+# profile: true
+
+# Set maximum number of concurrent runners
+# parallel-runners: 4
+
+# Enable progress bar
+# progress-bar: true
+
+# Configuration for specific checks
+# check-config:
+#   # Cloudflare specific configurations
+#   CKV_CF_1:
+#     # IPv6 enablement check
+#     severity: MEDIUM
+
+#   CKV_CF_2:
+#     # TLS version check
+#     severity: HIGH
+
+#   CKV_CF_3:
+#     # Development mode check
+#     severity: CRITICAL
+
+# Suppress specific findings by resource
+suppressions:
+  # Example: Suppress a specific check for a specific resource
+  # - id: CKV_CF_1
+  #   file_path: zone.tf
+  #   resource: cloudflare_zone.main
+  #   justification: "IPv6 not required for this zone"
+
+  # Example: Suppress by account ID or zone ID
+  # - id: CKV_CF_2
+  #   file_path: zone.tf
+  #   resource: cloudflare_zone_settings_override.main
+  #   justification: "Legacy applications require TLS 1.1 support"
+# Enable CIS benchmark checks
+# cis-benchmark: true
+
+# Enable SOC2 compliance checks
+# soc2-compliance: true
+
+# Enable PCI-DSS compliance checks
+# pci-dss-compliance: true
+
+# Enable HIPAA compliance checks
+# hipaa-compliance: true
+
+# Enable GDPR compliance checks
+# gdpr-compliance: true
+
+# Enable NIST compliance checks
+# nist-compliance: true
+
+# Enable ISO27001 compliance checks
+# iso27001-compliance: true
